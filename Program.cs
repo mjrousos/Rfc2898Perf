@@ -24,6 +24,7 @@ namespace Repro
         private readonly byte[] _salt = new byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D };
         private byte[] _cachedKey;
         private byte[] _cachedIV;
+        private Aes _cachedAlg;
         private byte[] _clearBytes;
 
         [GlobalSetup]
@@ -42,7 +43,14 @@ namespace Repro
         {
             var bytes1 = GenerateKeysAndEncryptData();
             var bytes2 = EncryptData();
+            var bytes3 = EncryptDataCachedAES();
 
+            AssertByteArraysEqual(bytes1, bytes2);
+            AssertByteArraysEqual(bytes1, bytes3);
+        }
+
+        private static void AssertByteArraysEqual(byte[] bytes1, byte[] bytes2)
+        {
             if (bytes1.Length != bytes2.Length)
             {
                 throw new InvalidOperationException($"Methods created cipher byte[]s of different lengths: {bytes1.Length} - {bytes2.Length}");
@@ -66,7 +74,7 @@ namespace Repro
             var key = rfc2898DeriveBytes.GetBytes(32);
             var iv = rfc2898DeriveBytes.GetBytes(16);
 
-            Rijndael alg = Rijndael.Create();
+            var alg = Rijndael.Create();
             alg.Key = key;
             alg.IV = iv;
 
@@ -89,7 +97,7 @@ namespace Repro
                 _cachedIV = rfc2898DeriveBytes.GetBytes(16);
             }
 
-            Rijndael alg = Rijndael.Create();
+            var alg = Rijndael.Create();
             alg.Key = _cachedKey;
             alg.IV = _cachedIV;
 
@@ -100,6 +108,26 @@ namespace Repro
                 cs.FlushFinalBlock();
                 return ms.ToArray();
             }
+        }
+
+        [Benchmark]
+        public byte[] EncryptDataCachedAES()
+        {
+            if (_cachedKey == null || _cachedIV == null)
+            {
+                var rfc2898DeriveBytes = new Rfc2898DeriveBytes(_password, _salt);
+                _cachedKey = rfc2898DeriveBytes.GetBytes(32);
+                _cachedIV = rfc2898DeriveBytes.GetBytes(16);
+            }
+
+            if (_cachedAlg == null)
+            {
+                _cachedAlg = Aes.Create();
+                _cachedAlg.Key = _cachedKey;
+                _cachedAlg.IV = _cachedIV;
+            }
+
+            return _cachedAlg.CreateEncryptor().TransformFinalBlock(_clearBytes, 0, _clearBytes.Length);
         }
     }
 }
